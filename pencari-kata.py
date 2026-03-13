@@ -21,7 +21,7 @@ def get_gdrive_id(link):
     try:
         return link.split('/d/')[1].split('/')[0]
     except:
-        raise ValueError("link gdrive-nya ga bener deh")
+        raise ValueError("link gdrive nya ga bener")
 
 def load_from_gdrive(link):
     fid = get_gdrive_id(link)
