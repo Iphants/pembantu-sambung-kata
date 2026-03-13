@@ -93,9 +93,13 @@ def main():
 
     while True:
         pola = input("masukkan pola: ").lower().strip()
-        if pola == "stop":
+        if pola in  ("stop", "quit"):
             print("program berhenti")
             break
+
+        if pola == "bantuan":
+            print(Bantuan)
+            continue
         
         hasil = cari(kamus, pola)
 
