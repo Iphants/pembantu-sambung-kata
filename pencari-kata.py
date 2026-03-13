@@ -1,114 +1,177 @@
 import re
+import time
 import sys
 import requests
+from collections import defaultdict
 from tkinter import Tk, filedialog
 
-#Konfigurasi
+# --- info cara pake ---
+help_msg = """
+cara pake:
+  _  => 1 huruf sembarang        contoh: b_la  = bola, bela, bila
+  =  => bebas berapa huruf aja   contoh: b=la  = bla, bela, berlapis
+  (kosong) => cari dari awal     contoh: bel   = beli, belok, belajar
 
-Bantuan = """
-Panduan pola pencarian:
-_ (underscore) => tepat 1 karakter sembarang contoh => b_la => bola, bela, bila
-= (sama dengan) => 0 atau lebih karakter sembarang, contoh => b=la => bla, bela, berla
-Tanpa tanda =? pencarian awalan (prefix) contoh => bel => beli, belajar, belok....,
+stop / quit = keluar
+bantuan     = tampilkan ini lagi
+"""
 
-Ketik 'stop' atau 'quit' untuk keluar.
-Ketik 'bantuan'  untuk menampilkan pesan ini. """ 
-
-# muat dari gdrive #
-
-def id_gdrive(link: str) -> str:
+# ambil id dari link gdrive
+def get_gdrive_id(link):
     try:
-        return link.split('/d/') [1].split('/')[0]
-    except IndexError:
-        raise ValueError("Link Gdrive ga valid.")
+        return link.split('/d/')[1].split('/')[0]
+    except:
+        raise ValueError("link gdrive-nya ga bener deh")
 
-def muat_kamus_gdrive(link: str):
-    file_id = id_gdrive(link)
-    url = f'https://drive.google.com/uc?export=download&id={file_id}'
-    print("Download kamus dari gdrive...")
-    resp = requests.get(url)
-    if resp.status_code !=200:
-        raise ConnectionError("Gagal download file.")
-    return [line.strip().lower() for line in resp.text.splitlines() if line.strip()]
+def load_from_gdrive(link):
+    fid = get_gdrive_id(link)
+    url = f'https://drive.google.com/uc?export=download&id={fid}'
+    print("downloading...")
+    r = requests.get(url, timeout=15)
+    if r.status_code != 200:
+        raise ConnectionError(f"gagal, status: {r.status_code}")
+    words = [x.strip().lower() for x in r.text.splitlines() if x.strip()]
+    return words
 
-# Muat kamus dari lokal #
-def muat_kamus_lokal():
+def load_local():
     Tk().withdraw()
-    path = filedialog.askopenfilename(title="pilih kamus (.txt)", filetypes=[("Text file", "*.txt")])
-    if not path:
-        raise ValueError ("Ga ada file di pilih.")
-    print ("muat kamus dari file lokal...")
-    with open(path, encoding="utf-8") as f:
+    p = filedialog.askopenfilename(
+        title="pilih file kamus (.txt)",
+        filetypes=[("Text file", "*.txt")]
+    )
+    if not p:
+        raise ValueError("ga ada file dipilih")
+    print(f"baca file: {p}")
+    with open(p, encoding="utf-8") as f:
         return [line.strip().lower() for line in f if line.strip()]
+
+# bikin index buat nyepatin search
+# struktur: index[huruf_pertama][panjang] = [list kata]
+# misal index['b'][4] = ['bola','batu','beli',...]
+def build_index(word_list):
+    idx = defaultdict(lambda: defaultdict(list))
+    for w in word_list:
+        if not w:
+            continue
+        first = w[0]
+        n = len(w)
+        idx[first][n].append(w)
+    # debug: uncomment buat liat distribusinya
+    # for h in sorted(idx): print(h, {k: len(v) for k,v in idx[h].items()})
+    return idx
+
+def parse_pattern(p):
+    has_eq   = '=' in p
+    has_wild = has_eq or ('_' in p)
+
+    # huruf awal cuma berguna kalau bukan wildcard
+    first = p[0] if p and p[0] not in ('_','=') else None
+
+    # kalau ada '=', panjang ga bisa ditentukan
+    # kalau ada '_' aja, tiap _ = 1 huruf jadi panjang = len(pola)
+    fixed_len = len(p) if not has_eq else None
+
+    return first, fixed_len, not has_wild   # first, len, is_prefix
+
+# _ jadi . (1 char), = jadi .* (bebas)
+def to_regex(p):
+    has_wild = ('_' in p) or ('=' in p)
+    parts = re.split(r'([_=])', p)
+
+    tmp = []
+    for chunk in parts:
+        if chunk == '_':   tmp.append('.')
+        elif chunk == '=': tmp.append('.*')
+        else:              tmp.append(re.escape(chunk))
+
+    core = ''.join(tmp)
+    pattern = f'^{core}$' if has_wild else f'^{core}.*$'
+    return re.compile(pattern)
+
+def search(word_list, idx, pola):
+    first, fixed_len, is_prefix = parse_pattern(pola)
+
+    # shortcut: prefix search pake startswith, ga perlu regex sama sekali
+    if is_prefix:
+        pool = (
+            [w for sub in idx[first].values() for w in sub]
+            if first and first in idx
+            else word_list
+        )
+        return [w for w in pool if w.startswith(pola)]
+
+    rx = to_regex(pola)
     
-# konversi pola ke regex #
-def pola_regex(pola):
-    ada_wildcard = ('_' in pola) or ('=' in pola)
-    bagian = re.split(r'([_=])', pola)
-    hasil = []
-    
-    for b in  bagian:
-        if b == '_':
-            hasil.append('.')
-        elif b == '=':
-            hasil.append('.*')
+    # pilih kandidat sekecil mungkin sebelum regex
+    if first and first in idx:
+        if fixed_len and fixed_len in idx[first]:
+            pool = idx[first][fixed_len]              # paling sempit
         else:
-            hasil.append(re.escape(b))
-    
-    inti = ''.join(hasil)
-    
-    return f'^{inti}$' if ada_wildcard else f'^{inti}.*$'
+            pool = [w for sub in idx[first].values() for w in sub]
+    elif fixed_len:
+        pool = [w for sub in idx.values() for w in sub.get(fixed_len, [])]
+    else:
+        pool = word_list   # worst case, tapi jarang
 
+    return [w for w in pool if rx.match(w)]
 
-# cari kata #
-def cari (kamus, pola):
-    regex = pola_regex(pola)
-    return [k for k in kamus if re.match(regex, k)]
-
-# utama #
 def main():
-    print("Pilih sumber kamus:")
-    print("1 => GDrive")
-    print("0 =>  FIle lokal")
+    print("sumber kamus:")
+    print("  1 = Google Drive")
+    print("  0 = file lokal")
 
-    pilih = input ("Pilih: ").strip()
+    pilih = input("pilih: ").strip()
+
     try:
-        if pilih == "1":
-            link = input("Masukin link GDrive: ").strip()
-            kamus = muat_kamus_gdrive(link)
-
-        elif pilih == "0":
-            kamus = muat_kamus_lokal()
-
+        if pilih == '1':
+            link = input("link gdrive: ").strip()
+            words = load_from_gdrive(link)
+        elif pilih == '0':
+            words = load_local()
         else:
-            print("Pilihan ga valid.")
+            print("pilihan ga valid")
             return
-        
     except Exception as e:
         print(f"error: {e}")
         sys.exit(1)
 
-    print(f"\n{len(kamus):,} kata berhasil dimuat.")
-    print(Bantuan)
+    print(f"{len(words):,} kata dimuat")
+
+    print("bikin index...")
+    t0 = time.perf_counter()
+    idx = build_index(words)
+    t1 = time.perf_counter()
+    print(f"index siap ({len(idx)} huruf, {(t1-t0)*1000:.1f} ms)\n")
+
+    print(help_msg)
 
     while True:
-        pola = input("masukkan pola: ").lower().strip()
-        if pola in  ("stop", "quit"):
-            print("program berhenti")
+        try:
+            pola = input("pola: ").lower().strip()
+        except (EOFError, KeyboardInterrupt):
+            print("\nkeluar")
             break
 
-        if pola == "bantuan":
-            print(Bantuan)
+        if not pola:
             continue
-        
-        hasil = cari(kamus, pola)
+        if pola in ('stop', 'quit', 'q'):
+            print("program berhenti")
+            break
+        if pola in ('bantuan', 'help', '?'):
+            print(help_msg)
+            continue
 
-        if hasil:
-            print(f"{len(hasil)} kata ketemu")
-            print("\n".join(hasil))
+        t0    = time.perf_counter()
+        found = search(words, idx, pola)
+        ms    = (time.perf_counter() - t0) * 1000
+
+        if found:
+            print(f"{len(found)} kata ketemu({ms:.2f} ms)")
+            print('\n'.join(found))
         else:
-            print("gada kata yang cocok.")
+            print(f"ga ketemu ({ms:.2f} ms)")
 
-        print("-"*30)
-if __name__ == "__main__":
-    main ()
+        print('-' * 28)
+
+if __name__ == '__main__':
+    main()
