@@ -130,7 +130,7 @@ quit
 ## ⚙️ Cara Kerja Program
 
 1. Memuat daftar kata dari file kamus (lokal atau Google Drive)
-2. Mengubah pola pengguna menjadi ekspresi reguler (regex)
+2. Mengubah pola pengguna menjadi ekspresi reguler
 3. Mencocokkan regex dengan setiap kata dalam kamus
 4. Menampilkan semua kata yang cocok beserta jumlahnya
 
@@ -144,21 +144,3 @@ project/
 ├── main.py       # Program utama
 └── README.md     # Dokumentasi ini
 ```
-
----
-
-## 💡 Ide Pengembangan
-
-Beberapa fitur yang bisa ditambahkan ke depannya:
-
-- 🔤 Mode case-sensitive / case-insensitive
-- 📊 Statistik hasil pencarian (frekuensi huruf, panjang kata, dsb.)
-- ⚡ Pencarian lebih cepat dengan indexing (trie / hash)
-- 🌐 GUI lengkap dengan `tkinter`
-- 📦 Export hasil pencarian ke file `.txt`
-
----
-
-## 📄 Lisensi
-
-Proyek ini bebas digunakan untuk keperluan pribadi dan edukasi.
