@@ -3,7 +3,6 @@ import os
 import sys
 import time
 import requests
-from collections import defaultdict
 from tkinter import Tk, filedialog
 from dictionary_source import cd, s_words, l_words
 
@@ -16,8 +15,6 @@ cara pake:
 stop / quit = keluar
 bantuan     = tampilkan ini lagi
 """
-
-# ---- ambil kata ----
 
 def get_gdrive_id(link):
     try:
@@ -63,8 +60,6 @@ def ambil_kata():
     else:
         raise ValueError("pilihan ga valid")
 
-# ---- opsional simpan ----
-
 def tawarin_simpan(words):
     print(f"\n{len(words):,} kata ditemukan")
     print("\nsimpan daftar kata ini biar ga perlu download lagi?")
@@ -76,22 +71,30 @@ def tawarin_simpan(words):
     else:
         print("oke, kamus cuma dipakai sementara")
 
-# ---- index & search ----
-
-def build_index(word_list):
-    idx = defaultdict(lambda: defaultdict(list))
-    for w in word_list:
-        idx[w[0]][len(w)].append(w)
+def build_index(words):
+    idx = {}
+    for w in words:
+        h = w[0]
+        n = len(w)
+        if h not in idx:
+            idx[h] = {}
+        if n not in idx[h]:
+            idx[h][n] = []
+        idx[h][n].append(w)
     return idx
 
-def search(word_list, idx, pola):
-    has_eq   = '=' in pola
+def search(words, idx, pola):
+    has_eq = '=' in pola
     has_wild = has_eq or ('_' in pola)
-    first    = pola[0] if pola[0] not in ('_', '=') else None
-    fixlen   = len(pola) if not has_eq else None
+    first = pola[0] if pola[0] not in ('_', '=') else None
+    fixlen = len(pola) if not has_eq else None
 
+    # prefix biasa, startswith aja cukup
     if not has_wild:
-        pool = [w for sub in idx[first].values() for w in sub] if first and first in idx else word_list
+        if first and first in idx:
+            pool = [w for sub in idx[first].values() for w in sub]
+        else:
+            pool = words
         return [w for w in pool if w.startswith(pola)]
 
     pat = ''
@@ -102,24 +105,25 @@ def search(word_list, idx, pola):
     rx = re.compile(f'^{pat}$')
 
     if first and first in idx:
-        pool = idx[first][fixlen] if fixlen and fixlen in idx[first] else [w for sub in idx[first].values() for w in sub]
+        if fixlen and fixlen in idx[first]:
+            pool = idx[first][fixlen]
+        else:
+            pool = [w for sub in idx[first].values() for w in sub]
     elif fixlen:
         pool = [w for sub in idx.values() for w in sub.get(fixlen, [])]
     else:
-        pool = word_list
+        pool = words
+
     return [w for w in pool if rx.match(w)]
 
-# ---- main ----
-
 def main():
-    # kalau udah punya wordlist, langsung load aja
     print("punya file wordlist yang sudah disimpan sebelumnya?")
     print("  1 = Ya")
     print("  0 = Tidak / Ambil Baru")
 
     try:
         if input("pilih: ").strip() == '1':
-            words = load_local()   # pake dialog yang sama
+            words = load_local()
         else:
             words = ambil_kata()
             tawarin_simpan(words)
@@ -129,7 +133,7 @@ def main():
 
     print(f"\n{len(words):,} kata dimuat")
     print("bikin index...")
-    t0  = time.perf_counter()
+    t0 = time.perf_counter()
     idx = build_index(words)
     print(f"index siap ({len(idx)} huruf, {(time.perf_counter()-t0)*1000:.1f} ms)\n")
     print(help_msg)
@@ -149,9 +153,9 @@ def main():
             print(help_msg)
             continue
 
-        t0    = time.perf_counter()
+        t0 = time.perf_counter()
         found = search(words, idx, pola)
-        ms    = (time.perf_counter() - t0) * 1000
+        ms = (time.perf_counter() - t0) * 1000
         if found:
             print(f"{len(found)} kata ketemu ({ms:.2f} ms)")
             print('\n'.join(found))
